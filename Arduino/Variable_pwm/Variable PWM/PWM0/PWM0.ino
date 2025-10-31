@@ -12,7 +12,8 @@ void setup() {
 
 void loop() {
   // ---- medir distancia con ultrasonido ----
-  long duration, inches, cm;
+  long duration;
+  float inches, cm;
 
   digitalWrite(trigPin, LOW);
   delayMicroseconds(2);
@@ -22,11 +23,11 @@ void loop() {
 
   duration = pulseIn(echoPin, HIGH);
 
-  inches = microsecondsToInches(duration);
-  cm = microsecondsToCentimeters(duration);
+  cm = microsecondsToCentimeters(duration) + 1.5; // offset de +1,5 cm
+  inches = cm / 2.54; // recalcular pulgadas desde cm con offset
 
   // ---- leer PWM desde teclado ----
-  static float dutyCycle = 0.0; // valor guardado si no se escribe nada nuevo
+  static float dutyCycle = 0.0;
   if (Serial.available() > 0) {
     String input = Serial.readStringUntil('\n');
     input.trim();
@@ -41,21 +42,17 @@ void loop() {
 
   // ---- mostrar info en monitor serial ----
   Serial.print("Distancia: ");
-  Serial.print(inches);
+  Serial.print(inches, 2); // dos decimales
   Serial.print(" in, ");
-  Serial.print(cm);
+  Serial.print(cm, 1);     // un decimal
   Serial.print(" cm | Duty Cycle: ");
-  Serial.print(dutyCycle * 100);
+  Serial.print(dutyCycle * 100, 1);
   Serial.print("% | PWM: ");
   Serial.println(pwmValue);
 
   delay(200);
 }
 
-long microsecondsToInches(long microseconds) {
-  return microseconds / 74 / 2;
-}
-
-long microsecondsToCentimeters(long microseconds) {
-  return microseconds / 29 / 2;
+float microsecondsToCentimeters(long microseconds) {
+  return microseconds / 29.0 / 2.0;
 }
