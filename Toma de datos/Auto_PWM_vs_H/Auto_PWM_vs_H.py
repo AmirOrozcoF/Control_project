@@ -27,7 +27,7 @@ try:
     
     print("Capturando datos... (presiona Ctrl+C para detener)")
     
-    with open('datos.csv', 'w') as f:
+    with open('3Escalones.csv', 'w') as f:
         while True:
             if ser.in_waiting > 0:
                 line = ser.readline().decode('utf-8').strip()

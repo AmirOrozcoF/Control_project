@@ -23,6 +23,9 @@ void setup() {
   analogWrite(PWM, 0);
   delay(1000);
   
+  // Iniciar en 50%
+  currentStep = 50;
+  
   Serial.println("PWM(%),Altura(cm)");
 }
 
@@ -31,25 +34,30 @@ void loop() {
     return; // No hacer nada más después de completar
   }
   
-  // Calcular el valor de PWM para este paso (0% a 100%)
+  // Calcular el valor de PWM para este paso (50% a 100%)
   float dutyCycle = (float)currentStep / (totalSteps - 1);
   int pwmValue = (int)(dutyCycle * 255);
   
   // Establecer el PWM
   analogWrite(PWM, pwmValue);
   
-  // Tomar mediciones durante 3 segundos a 20Hz (50ms entre mediciones)
-  const int numMeasurements = 60; // 3 segundos * 20 Hz
-  const int delayMs = 50; // 1000ms / 20Hz
+  // Tomar mediciones durante 3 segundos a 2Hz (500ms entre mediciones)
+  const int numMeasurements = 6; // 3 segundos * 2 Hz
+  const int delayMs = 500; // 1000ms / 2Hz
+  const int ignoreFirst = 2; // Ignorar las primeras 2 mediciones
+  
   float sumCm = 0.0;
   int validMeasurements = 0;
   
   for (int i = 0; i < numMeasurements; i++) {
     float cm = measureDistance();
-    if (cm > 0) { // Solo contar mediciones válidas
+    
+    // Ignorar las primeras 2 mediciones
+    if (i >= ignoreFirst && cm > 0) {
       sumCm += cm;
       validMeasurements++;
     }
+    
     delay(delayMs);
   }
   
