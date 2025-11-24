@@ -12,6 +12,7 @@
 // • PWM Escalón positivo:            193 (duty ~76%)
 // • PWM Escalón negativo:            173 (duty ~68%)
 // • Rango sensor HC-SR04:            2-50 cm
+// • Offset de calibración:           +1.5 cm
 //
 // SECUENCIA DEL EXPERIMENTO AUTOMÁTICO:
 // --------------------------------------
@@ -44,9 +45,9 @@ const int echoPin = 8;
 const int PWM = 9;
 
 // ===== CONFIGURACIÓN DEL EXPERIMENTO =====
-const int PWM_HOVER = 158;        // PWM de hover
+const int PWM_HOVER = 162;        // PWM de hover
 const int PWM_STEP_UP = 173;      // Escalón positivo (+10)
-const int PWM_STEP_DOWN = 133;    // Escalón negativo (-10)
+const int PWM_STEP_DOWN = 153;    // Escalón negativo (-10)
 const int PWM_OFF = 0;
 
 // Tiempos en milisegundos
@@ -68,7 +69,7 @@ const float ALPHA = T_SAMPLE_S / (TAU_F + T_SAMPLE_S);  // Coeficiente EMA
 // ===== CONFIGURACIÓN DEL SENSOR HC-SR04 =====
 const float CM_MIN = 2.0;                 // Distancia mínima válida (cm)
 const float CM_MAX = 50.0;                // Distancia máxima válida (cm)
-const unsigned long TIMEOUT_US = 30000;   // Timeout para pulseIn (30 ms)
+const float CM_OFFSET = 1.5;              // Offset de calibración (+1.5 cm)
 const int MAX_FALLOS_CONSECUTIVOS = 5;    // Máximo de lecturas fallidas seguidas
 
 // ===== VARIABLES GLOBALES =====
@@ -84,6 +85,11 @@ bool filtro_inicializado = false;
 // Variables de robustez
 int contadorFallos = 0;
 float ultimaLecturaValida = 0.0;
+
+// ===== FUNCIÓN: CONVERSIÓN MICROSEGUNDOS A CENTÍMETROS =====
+float microsecondsToCentimeters(long microseconds) {
+  return microseconds / 29.0 / 2.0;
+}
 
 // ===== FUNCIÓN: SETUP =====
 void setup() {
@@ -106,6 +112,7 @@ void setup() {
   Serial.print(F("  Periodo muestreo:    ")); Serial.print(T_SAMPLE_MS); Serial.println(F(" ms"));
   Serial.print(F("  Frecuencia corte:    ")); Serial.print(FC); Serial.println(F(" Hz"));
   Serial.print(F("  Coef. filtro (α):    ")); Serial.println(ALPHA, 4);
+  Serial.print(F("  Offset sensor:       ")); Serial.print(CM_OFFSET); Serial.println(F(" cm"));
   Serial.println();
   Serial.println(F("COMANDOS DISPONIBLES:"));
   Serial.println(F("  AUTO_UP   : Experimento escalon positivo (183→193)"));
@@ -117,7 +124,7 @@ void setup() {
   Serial.println();
 }
 
-// ===== FUNCIÓN: LEER DISTANCIA CON VALIDACIÓN =====
+// ===== FUNCIÓN: LEER DISTANCIA CON VALIDACIÓN (MÉTODO CORREGIDO) =====
 float leerDistancia(bool *exitoso) {
   *exitoso = false;
   
@@ -128,16 +135,16 @@ float leerDistancia(bool *exitoso) {
   delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
   
-  // Leer duración del eco con timeout
-  long duration = pulseIn(echoPin, HIGH, TIMEOUT_US);
+  // Leer duración del eco (sin timeout para coincidir con código de referencia)
+  long duration = pulseIn(echoPin, HIGH);
   
-  // Verificar timeout
+  // Verificar lectura válida
   if (duration == 0) {
-    return -1.0;  // Error: timeout
+    return -1.0;  // Error: sin respuesta
   }
   
-  // Convertir a centímetros
-  float cm = duration / 29.0 / 2.0;
+  // Convertir a centímetros con offset de calibración
+  float cm = microsecondsToCentimeters(duration) + CM_OFFSET;
   
   // Validar rango
   if (cm < CM_MIN || cm > CM_MAX) {

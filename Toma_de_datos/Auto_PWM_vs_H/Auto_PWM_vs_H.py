@@ -22,12 +22,12 @@ if puerto is None:
 print(f"Conectando a {puerto}...")
 
 try:
-    ser = serial.Serial(puerto, 9600, timeout=1)
+    ser = serial.Serial(puerto, 115200, timeout=1)
     time.sleep(2)  # Esperar que Arduino reinicie después de la conexión
     
     print("Capturando datos... (presiona Ctrl+C para detener)")
     
-    with open('3Escalones.csv', 'w') as f:
+    with open('CFA3.csv', 'w') as f:
         while True:
             if ser.in_waiting > 0:
                 line = ser.readline().decode('utf-8').strip()
