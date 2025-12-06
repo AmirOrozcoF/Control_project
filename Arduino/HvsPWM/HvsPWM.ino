@@ -8,6 +8,7 @@ const int totalSteps = 100;
 
 void setup() {
   Serial.begin(9600);
+
   pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
   pinMode(PWM, OUTPUT);

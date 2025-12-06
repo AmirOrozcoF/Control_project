@@ -9,8 +9,8 @@ const int echoPin = 8;
 const int PWM = 9;
 
 // ===== CONFIGURACIÓN DEL EXPERIMENTO =====
-const int PWM_INICIO = 133;  // 62% = 158/255
-const int PWM_FINAL = 146;   // 70% = 178/255
+const int PWM_INICIO = 100;  // 62% = 158/255
+const int PWM_FINAL = 120;   // 70% = 178/255
 
 // ===== PARÁMETROS DE MUESTREO =====
 const float FS = 50.0;                    // Hz - Frecuencia de muestreo
@@ -31,7 +31,7 @@ const float MAX_CAMBIO_CM = 4.0;          // Máximo cambio permitido entre lect
 // ===== VARIABLES GLOBALES =====
 unsigned long startTime = 0;
 unsigned long ultimoMuestreo = 0;
-int currentPWM = 133;
+int currentPWM = 100;
 bool testCompleted = false;
 bool dataLogging = false;
 
@@ -133,7 +133,7 @@ void setup() {
   delay(1000);
   
   // Ir a 62% durante 10 segundos sin tomar datos
-  analogWrite(PWM, 133);
+  analogWrite(PWM, 100);
   delay(10000);
   
   // Iniciar toma de datos
@@ -161,8 +161,8 @@ void loop() {
   unsigned long tiempoTranscurrido = currentTime - startTime;
   
   // Verificar si pasaron 10 segundos para subir a 70%
-  if (tiempoTranscurrido >= 10000 && currentPWM == 133) {
-    currentPWM = 146;
+  if (tiempoTranscurrido >= 10000 && currentPWM == 100) {
+    currentPWM = 120;
     analogWrite(PWM, currentPWM);
   }
   

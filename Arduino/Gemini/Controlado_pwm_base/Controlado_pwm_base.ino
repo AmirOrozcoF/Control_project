@@ -24,12 +24,12 @@ double Ki = 1.3;   // Corrección fina de error estático
 double Kd = 1.2;   // Freno para estabilidad (ahora sí funcionará bien)
 
 // ===== CONFIGURACIÓN FÍSICA =====
-double pwm_base = 135.0; // ¡EL SECRETO! Valor aproximado para flotar (hover)
+double pwm_base = 100.0; // ¡EL SECRETO! Valor aproximado para flotar (hover)
 // Si el dron es muy pesado y no sube, aumenta esto a 140.
 // Si sube solo sin parar, bájalo a 130.
 
 // ===== VARIABLES =====
-double setpoint = 15.0;   
+double setpoint = 20.0;   
 double input_height = 0;
 double output_pwm = 0;
 
@@ -40,8 +40,8 @@ unsigned long lastTime = 0;
 unsigned long startTime = 0;
 
 // Límites
-const int PWM_MIN = 110; 
-const int PWM_MAX = 220; 
+const int PWM_MIN = 10; 
+const int PWM_MAX = 225; 
 
 void setup() {
   Serial.begin(115200);

@@ -1,42 +1,44 @@
 /*
- * CONTROLADOR DE ALTURA PARA DRON - PID SIMPLE
- * * INSTRUCCIONES:
- * 1. Sube este código al Arduino.
- * 2. Abre el Monitor Serial (Asegúrate que esté a 115200 baudios).
- * 3. Escribe la altura deseada en cm y presiona Enter (ej: 20).
- * 4. Para apagar de emergencia, envía un 0.
+ * CONTROLADOR PID CON FEEDFORWARD (BASE) - MODIFICADO PARA INPUT SERIAL
+ * Base: 135 (Sostenimiento)
+ * PID: 2.5, 1.3, 1.2
+ * Input: Vía Monitor Serial
  */
 
-// ===== CONFIGURACIÓN DE PINES =====
+// ===== PINES =====
 const int trigPin = 7;
 const int echoPin = 8;
 const int PWM_PIN = 9;
 
-// ===== PARÁMETROS DEL PID (SINTONIZACIÓN) =====
-// Estos valores son estimados basándome en tus datos "Navidad".
-// Si oscila mucho, baja Kp. Si es muy lento, sube Kp.
-double Kp = 2.5;   // Fuerza de reacción inmediata
-double Ki = 0.3;   // Corrección de error acumulado (elimina error constante)
-double Kd = 5.0;   // Freno para evitar oscilaciones bruscas
+// ===== FILTROS =====
+const int NUM_READINGS = 5; 
+float readings[NUM_READINGS];
+int readIndex = 0;
+const float ALPHA = 0.3; // Filtro suave
+float filteredHeight = 0;
 
-// ===== LÍMITES DE SEGURIDAD =====
-const int PWM_MIN = 110;  // PWM mínimo para que los motores giren (zona muerta)
-const int PWM_MAX = 200;  // PWM máximo por seguridad (no quemar motores/golpear techo)
-const int PWM_BASE = 0;   // Base, se ajustará sola con el PID
+// ===== PID TUNING (TUS VALORES) =====
+double Kp = 2.5;   // Reacción suave pero firme
+double Ki = 1.3;   // Corrección fina de error estático
+double Kd = 1.2;   // Freno para estabilidad
 
-// ===== VARIABLES DEL SISTEMA =====
-double setpoint = 0;      // Altura deseada (cm) - Inicia en 0 por seguridad
-double input_height = 0;  // Altura actual medida
-double output_pwm = 0;    // Señal enviada a los motores
+// ===== CONFIGURACIÓN FÍSICA =====
+double pwm_base = 90.0; // Valor para flotar (Feedforward)
 
-// Variables internas del PID
+// ===== VARIABLES =====
+double setpoint = 0;      // INICIA EN 0 POR SEGURIDAD
+double input_height = 0;
+double output_pwm = 0;
+
+// PID Internals
 double error, lastError = 0;
 double integral = 0;
 unsigned long lastTime = 0;
+unsigned long startTime = 0;
 
-// Filtro (Tomado de tu código Nuevo_escalon_filtrado)
-float filteredHeight = 0;
-const float ALPHA = 0.2; // Factor de suavizado (0.0 a 1.0)
+// Límites
+const int PWM_MIN = 110; 
+const int PWM_MAX = 220; 
 
 void setup() {
   Serial.begin(115200);
@@ -44,112 +46,121 @@ void setup() {
   pinMode(echoPin, INPUT);
   pinMode(PWM_PIN, OUTPUT);
   
-  // Inicializar motores apagados
+  // Inicializar buffers del filtro
+  float firstRead = readRawSonar();
+  for (int i = 0; i < NUM_READINGS; i++) readings[i] = firstRead;
+  filteredHeight = firstRead;
+  
+  // Motores apagados al inicio
   analogWrite(PWM_PIN, 0);
   
-  Serial.println(F("=== CONTROLADOR DE ALTURA LISTO ==="));
-  Serial.println(F("Escribe una altura en cm (ej: 15.0) para iniciar."));
-  Serial.println(F("Escribe 0 para APAGAR."));
+  delay(1000); 
+  startTime = millis();
   
-  filteredHeight = readSonar(); // Lectura inicial
+  Serial.println(F("SISTEMA LISTO."));
+  Serial.println(F("Escribe la altura (ej: 15) y pulsa Enter."));
+  Serial.println(F("Escribe 0 para APAGAR."));
+  Serial.println(F("Tiempo(ms),Setpoint(cm),Altura(cm),PWM")); // Header para CSV
 }
 
 void loop() {
-  // 1. LEER COMANDOS DEL USUARIO (MONITOR SERIAL)
+  // 1. LEER MONITOR SERIAL (NUEVO BLOQUE)
   if (Serial.available() > 0) {
     float val = Serial.parseFloat();
-    // Limpiar el buffer de cualquier caracter extra (como saltos de linea)
-    while(Serial.available()) Serial.read(); 
+    // Limpiar buffer de saltos de línea
+    while(Serial.available()) Serial.read();
     
-    if (val <= 2.0) { // Si envían 0 o un valor muy bajo, apagamos todo
+    if (val < 2.0) { 
+      // APAGADO DE EMERGENCIA O RESET
       setpoint = 0;
-      integral = 0; // Reiniciar acumulador
+      integral = 0; // Importante: borrar memoria del PID
+      output_pwm = 0;
       analogWrite(PWM_PIN, 0);
-      Serial.println(F("SISTEMA APAGADO / MOTOR DETENIDO"));
     } else {
       setpoint = val;
-      Serial.print(F("Nueva altura objetivo: "));
-      Serial.print(setpoint);
-      Serial.println(F(" cm"));
     }
   }
 
-  // Si el setpoint es 0, no hacemos nada más
-  if (setpoint == 0) {
-    analogWrite(PWM_PIN, 0);
-    delay(50);
-    return;
-  }
-
-  // 2. MEDICIÓN DE TIEMPO
+  // 2. LOOP DE CONTROL (50Hz)
   unsigned long now = millis();
-  double dt = (double)(now - lastTime) / 1000.0; // Tiempo en segundos
   
-  // Ejecutar el PID cada 50ms (20Hz) aproximadamente para estabilidad
-  if (dt >= 0.05) { 
+  if (now - lastTime >= 20) { 
+    double dt = (now - lastTime) / 1000.0;
     lastTime = now;
 
-    // 3. LEER SENSOR Y FILTRAR
-    float rawHeight = readSonar();
-    // Filtro Exponencial (EMA) para reducir ruido del sensor
-    filteredHeight = (ALPHA * rawHeight) + ((1.0 - ALPHA) * filteredHeight);
+    // --- LECTURA Y FILTRADO ---
+    float raw = readRawSonar();
+    float median = getMedian(raw);
+    filteredHeight = (ALPHA * median) + ((1.0 - ALPHA) * filteredHeight);
     input_height = filteredHeight;
 
-    // 4. CÁLCULO DEL PID
-    error = setpoint - input_height;
-    
-    // Término Integral (Acumula el error en el tiempo)
-    // Anti-windup: limitamos la integral para que no crezca infinito si sostenemos el dron
-    if(output_pwm < PWM_MAX && output_pwm > PWM_MIN) {
-        integral += (error * dt);
+    // Si el setpoint es 0, mantenemos todo apagado y saltamos el cálculo PID
+    if (setpoint == 0) {
+        analogWrite(PWM_PIN, 0);
+        // Seguimos enviando datos para verificar que el sensor lee bien en reposo
+        Serial.print(now - startTime);
+        Serial.print(",");
+        Serial.print(0); // Setpoint 0
+        Serial.print(",");
+        Serial.print(input_height);
+        Serial.println(",0"); // PWM 0
+        return; 
     }
 
-    // Término Derivativo (Cambio del error)
+    // --- PID ---
+    error = setpoint - input_height;
+
+    // Anti-windup
+    if (output_pwm < PWM_MAX && output_pwm > PWM_MIN) {
+        integral += (error * dt);
+    } 
+    
+    // Derivada
     double derivative = (error - lastError) / dt;
-
-    // Fórmula PID completa
-    double PID_output = (Kp * error) + (Ki * integral) + (Kd * derivative);
     
-    // Calcular PWM final
-    output_pwm = PID_output; 
+    // CALCULO FINAL: BASE + PID
+    double PID_out = pwm_base + (Kp * error) + (Ki * integral) + (Kd * derivative);
+    output_pwm = PID_out;
 
-    // 5. SATURACIÓN Y SALIDA (Límites físicos)
-    // Mapeamos o limitamos el valor. 
-    // Nota: El PID da un valor de corrección. Si el sistema necesita un PWM base para despegar,
-    // el término Integral se encargará de encontrarlo automáticamente.
-    
+    // --- SALIDA ---
     if (output_pwm > PWM_MAX) output_pwm = PWM_MAX;
-    if (output_pwm < PWM_MIN) output_pwm = PWM_MIN; // Mantiene los motores girando mínimo
+    if (output_pwm < PWM_MIN) output_pwm = PWM_MIN;
 
-    // Seguridad extra: Si la altura objetivo es alcanzada y el error es muy bajo, mantener.
-    // Pero si el usuario pidió 0, ya lo manejamos arriba.
-    
     analogWrite(PWM_PIN, (int)output_pwm);
     lastError = error;
 
-    // 6. DEBUG (Para ver en el Serial Plotter)
-    Serial.print("Target:");
+    // --- LOG (Mismo formato CSV) ---
+    Serial.print(now - startTime);
+    Serial.print(",");
     Serial.print(setpoint);
-    Serial.print(" Actual:");
+    Serial.print(",");
     Serial.print(input_height);
-    Serial.print(" PWM:");
+    Serial.print(",");
     Serial.println(output_pwm);
   }
 }
 
-// Función auxiliar de lectura del sensor (basada en tu código)
-float readSonar() {
+// === AUXILIARES ===
+float readRawSonar() {
+  digitalWrite(trigPin, LOW); delayMicroseconds(2);
+  digitalWrite(trigPin, HIGH); delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
-  digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10);
-  digitalWrite(trigPin, LOW);
+  long duration = pulseIn(echoPin, HIGH, 18000); 
+  if (duration == 0) return readings[readIndex]; 
+  return (duration / 2.0) / 29.1 + 1.5; 
+}
 
-  long duration = pulseIn(echoPin, HIGH, 30000); // Timeout 30ms para no bloquear
-  if (duration == 0) return filteredHeight; // Si falla, retorna el último valor válido
-  
-  float cm = (duration / 2.0) / 29.1;
-  // Corrección física (offset) si es necesario, 
-  // tu código anterior tenía +1.5, puedes ajustarlo aquí:
-  return cm + 1.5; 
+float getMedian(float newVal) {
+  readings[readIndex] = newVal;
+  readIndex = (readIndex + 1) % NUM_READINGS;
+  float sorted[NUM_READINGS];
+  for (int i=0; i<NUM_READINGS; i++) sorted[i] = readings[i];
+  for (int i=0; i<NUM_READINGS-1; i++) {
+    for (int j=0; j<NUM_READINGS-i-1; j++) {
+      if (sorted[j] > sorted[j+1]) {
+        float temp = sorted[j]; sorted[j] = sorted[j+1]; sorted[j+1] = temp;
+      }
+    }
+  }
+  return sorted[NUM_READINGS/2];
 }
